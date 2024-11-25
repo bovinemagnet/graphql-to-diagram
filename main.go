@@ -384,10 +384,16 @@ func isNonNullType(t ast.Type) bool {
 	return isNonNull
 }
 
-func processSchema(doc *ast.Document, diagram *Diagram) {
+func processSchema(doc *ast.Document, diagram *Diagram, relatedTypes map[string]bool) {
+	filterEnabled := len(relatedTypes) > 0
+
 	for _, def := range doc.Definitions {
 		switch def := def.(type) {
 		case *ast.ObjectDefinition:
+			if filterEnabled && !relatedTypes[def.Name.Value] {
+				continue
+			}
+
 			class := &ClassNode{
 				ID:   "c" + def.Name.Value,
 				Name: def.Name.Value,
@@ -413,6 +419,9 @@ func processSchema(doc *ast.Document, diagram *Diagram) {
 				}
 			}
 		case *ast.ScalarDefinition:
+			if filterEnabled && !relatedTypes[def.Name.Value] {
+				continue
+			}
 			scalar := &ScalarNode{
 				Name:        def.Name.Value,
 				Description: getDescription(def.Description),
@@ -500,17 +509,15 @@ func outputDiagram(d *Diagram) {
 }
 
 func main() {
-	// Add format flag
 	formatFlag := flag.String("format", "mermaid", "Output format: mermaid or drawio")
+	fromQuery := flag.String("fromQuery", "", "Start from specific type (optional)")
 	flag.Parse()
 
-	// Read the GraphQL schema file
 	schemaBytes, err := ioutil.ReadFile("test.graphqls")
 	if err != nil {
 		log.Fatalf("Error reading schema file: %v", err)
 	}
 
-	// Parse the GraphQL schema
 	doc, err := parser.Parse(parser.ParseParams{
 		Source: string(schemaBytes),
 	})
@@ -518,32 +525,28 @@ func main() {
 		log.Fatalf("Error parsing schema: %v", err)
 	}
 
-	// Create new Diagram
 	diagram := &Diagram{
 		Classes:    make([]*ClassNode, 0),
 		Relations:  make([]Relation, 0),
 		Scalars:    make([]*ScalarNode, 0),
 		Directives: make([]*DirectiveNode, 0),
 		format:     Mermaid,
-		maxWidth:   1920, // Standard screen width
-		maxHeight:  1080, // Standard screen height
+		maxWidth:   1920,
+		maxHeight:  1080,
 	}
 
-	// Set format based on flag
 	if *formatFlag == "drawio" {
 		diagram.format = DrawIO
 	}
 
-	// Process the schema
-	processSchema(doc, diagram)
+	relatedTypes := getTypesFromQuery(doc, *fromQuery)
 
-	// Output the diagram
+	processSchema(doc, diagram, relatedTypes)
+
 	outputDiagram(diagram)
-
 }
 
 func processInputDefinition(input *ast.InputObjectDefinition, diagram *MermaidDiagram, doc *ast.Document) {
-	// Create input class definition with <<input>> stereotype
 	className := input.Name.Value
 	classStr := fmt.Sprintf("class %s {\n    <<input>>", className)
 
@@ -666,14 +669,6 @@ func getDirectiveLocations(locs []string) []string {
 	return locs
 }
 
-//func getDirectiveLocations(locs []ast.DirectiveLocationEnum) []string {
-//	var locations []string
-//	for _, loc := range locs {
-//		locations = append(locations, loc.String())
-//	}
-//	return locations
-//}
-
 func formatDefaultValue(value ast.Value) string {
 	switch v := value.(type) {
 	case *ast.StringValue:
@@ -689,4 +684,48 @@ func formatDefaultValue(value ast.Value) string {
 	default:
 		return ""
 	}
+}
+
+func getTypesFromQuery(doc *ast.Document, queryType string) map[string]bool {
+	relatedTypes := make(map[string]bool)
+	if queryType == "" {
+		return relatedTypes
+	}
+
+	relatedTypes[queryType] = true
+
+	for {
+		typesAdded := false
+
+		for _, def := range doc.Definitions {
+			objDef, isObj := def.(*ast.ObjectDefinition)
+			if !isObj {
+				continue
+			}
+
+			if relatedTypes[objDef.Name.Value] {
+				for _, field := range objDef.Fields {
+					baseType := getBaseType(field.Type)
+					if !relatedTypes[baseType] && isObjectType(field.Type, doc) {
+						relatedTypes[baseType] = true
+						typesAdded = true
+					}
+
+					for _, arg := range field.Arguments {
+						baseArgType := getBaseType(arg.Type)
+						if !relatedTypes[baseArgType] && (isObjectType(arg.Type, doc) || isInputType(arg.Type, doc)) {
+							relatedTypes[baseArgType] = true
+							typesAdded = true
+						}
+					}
+				}
+			}
+		}
+
+		if !typesAdded {
+			break
+		}
+	}
+
+	return relatedTypes
 }
