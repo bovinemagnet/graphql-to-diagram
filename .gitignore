@@ -23,3 +23,16 @@ go.work.sum
 
 # env file
 .env
+
+# Ignore GraphQL files
+*.graphql
+*.graphqls
+
+# Ignore Mermaid files
+*.mmd
+
+# Ignore DrawIO files
+*.drawio
+
+# Ignore test markdown files
+test.md
