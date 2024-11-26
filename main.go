@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/xml"
 	"flag"
 	"fmt"
@@ -92,6 +93,17 @@ const (
 	StartX            = 50
 	StartY            = 50
 )
+
+/*
+
+        <mxCell
+		id="zkfFHV4jXpPFQw0GAbJ--3"
+		value="Email Address"
+		style="text;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rounded=0;shadow=0;html=0;"
+		parent="zkfFHV4jXpPFQw0GAbJ--0" vertex="1">
+          <mxGeometry y="78" width="160" height="26" as="geometry" />
+        </mxCell>
+*/
 
 const (
 	ClassStyle   = `swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;`
@@ -414,7 +426,9 @@ func processSchema(doc *ast.Document, diagram *Diagram, relatedTypes map[string]
 					diagram.Relations = append(diagram.Relations, Relation{
 						From: def.Name.Value,
 						To:   getBaseType(field.Type),
-						Type: "uses",
+						Type: " ",
+						//Type: "uses",
+
 					})
 				}
 			}
@@ -454,9 +468,10 @@ func processSchema(doc *ast.Document, diagram *Diagram, relatedTypes map[string]
 					baseType := getBaseType(arg.Type)
 					if isObjectType(arg.Type, doc) || isInputType(arg.Type, doc) || isCustomScalar(arg.Type, doc) {
 						diagram.Relations = append(diagram.Relations, Relation{
-							From:     "@" + directive.Name,
-							To:       baseType,
-							Type:     "uses",
+							From: "@" + directive.Name,
+							To:   baseType,
+							Type: " ",
+							//Type: "uses",
 							EdgeType: "directive",
 						})
 					}
@@ -511,9 +526,11 @@ func outputDiagram(d *Diagram) {
 func main() {
 	formatFlag := flag.String("format", "mermaid", "Output format: mermaid or drawio")
 	fromQuery := flag.String("fromQuery", "", "Start from specific type (optional)")
+	schemaFile := flag.String("schema", "schema.graphql", "Path to GraphQL schema file")
+	outputFile := flag.String("output", "", "Output file path (optional, defaults to stdout)")
 	flag.Parse()
 
-	schemaBytes, err := ioutil.ReadFile("test.graphqls")
+	schemaBytes, err := ioutil.ReadFile(*schemaFile)
 	if err != nil {
 		log.Fatalf("Error reading schema file: %v", err)
 	}
@@ -543,7 +560,28 @@ func main() {
 
 	processSchema(doc, diagram, relatedTypes)
 
-	outputDiagram(diagram)
+	// Handle output
+	if *outputFile != "" {
+		output := generateOutput(diagram) // Wrap your existing output logic in a function that returns []byte
+		err := ioutil.WriteFile(*outputFile, output, 0644)
+		if err != nil {
+			log.Fatalf("Error writing output file: %v", err)
+		}
+	} else {
+		outputDiagram(diagram) // Your existing stdout output
+	}
+}
+
+func generateOutput(d *Diagram) []byte {
+	if d.format == DrawIO {
+		return generateDrawIOXML(d)
+	}
+
+	var buf bytes.Buffer
+	// Capture Mermaid output
+	fmt.Fprintf(&buf, "classDiagram\n")
+	// ... rest of your Mermaid generation logic writing to buf instead of fmt.Println
+	return buf.Bytes()
 }
 
 func processInputDefinition(input *ast.InputObjectDefinition, diagram *MermaidDiagram, doc *ast.Document) {
@@ -557,7 +595,8 @@ func processInputDefinition(input *ast.InputObjectDefinition, diagram *MermaidDi
 
 		// Add relations for object types and other input types
 		if isObjectType(field.Type, doc) || isInputType(field.Type, doc) {
-			relation := fmt.Sprintf("%s ..> %s : uses", className, getBaseType(field.Type))
+			//relation := fmt.Sprintf("%s ..> %s : uses", className, getBaseType(field.Type))
+			relation := fmt.Sprintf("%s ..> %s : ", className, getBaseType(field.Type))
 			diagram.relations = append(diagram.relations, relation)
 		}
 	}
@@ -577,14 +616,16 @@ func processObjectDefinition(obj *ast.ObjectDefinition, diagram *MermaidDiagram,
 
 		// Add relations for object types
 		if isObjectType(field.Type, doc) {
-			relation := fmt.Sprintf("%s --> %s : has", className, getBaseType(field.Type))
+			relation := fmt.Sprintf("%s --> %s : ", className, getBaseType(field.Type))
+			//relation := fmt.Sprintf("%s --> %s : has", className, getBaseType(field.Type))
 			diagram.relations = append(diagram.relations, relation)
 		}
 
 		// Add relations for input types in arguments
 		for _, arg := range field.Arguments {
 			if isInputType(arg.Type, doc) {
-				relation := fmt.Sprintf("%s ..> %s : uses", className, getBaseType(arg.Type))
+				relation := fmt.Sprintf("%s ..> %s : ", className, getBaseType(arg.Type))
+				//relation := fmt.Sprintf("%s ..> %s : uses", className, getBaseType(arg.Type))
 				diagram.relations = append(diagram.relations, relation)
 			}
 		}

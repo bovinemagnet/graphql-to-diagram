@@ -36,3 +36,4 @@ go.work.sum
 
 # Ignore test markdown files
 test.md
+dist/
